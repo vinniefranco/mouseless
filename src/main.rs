@@ -11,7 +11,6 @@ use iced::{
     widget::{container, text},
     window,
 };
-use mouce::common::MouseButton;
 use mouce::{Mouse, MouseActions};
 
 pub fn main() -> iced::Result {
