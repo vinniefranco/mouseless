@@ -19,9 +19,9 @@ pub fn main() -> iced::Result {
         MouseApplication::update,
         MouseApplication::view,
     )
-    .window(MouseApplication::window())
+    .window(MouseApplication::window_style())
     .subscription(MouseApplication::keyboard_subscription)
-    .style(MouseApplication::style)
+    .style(MouseApplication::theme_style)
     .run()
 }
 #[derive(Debug, Clone)]
@@ -78,16 +78,14 @@ impl Coord {
         let cell_height = height / 4.0;
         let x = cell_width * col as f32 / 2.0;
         let y = cell_height * row as f32 / 2.0;
-        let x_pad = cell_width / 2.0 / 2.0;
-        let y_pad = cell_height / 2.0 / 2.0;
 
         println!("cell={row}:{col} cell_pos={x}x{y} ");
 
         Self {
             x,
             y,
-            x_pad,
-            y_pad,
+            x_pad: cell_width / 4.0,
+            y_pad: cell_height / 4.0,
             width: cell_width,
             height: cell_height,
         }
@@ -101,18 +99,20 @@ impl Coord {
         (self.y + self.y_pad) as i32
     }
 
-    fn xy_for_sub_index(size: Size, cell_idx: u32, sub_cell_idx: usize) -> (i32, i32) {
-        let coordinates = Coord::new(size, cell_idx);
-        let sub_row = sub_cell_idx / 9;
-        let sub_col = sub_cell_idx % 9;
-        let sub_cell_width = coordinates.width / 9.0;
-        let sub_cell_height = coordinates.height / 6.0;
-        let x = sub_cell_width * sub_col as f32 / 2.0 + coordinates.x;
-        let y = sub_cell_height * sub_row as f32 / 2.0 + coordinates.y;
-        let x_pad = (sub_cell_width / 2.0 / 2.0) as i32;
-        let y_pad = (sub_cell_height / 2.0 / 2.0) as i32;
+    fn xy_for_sub_index(size: Size, cell_idx: u32, sub_idx: usize) -> (i32, i32) {
+        let coord = Coord::new(size, cell_idx);
+        let sub_row = sub_idx / 9;
+        let sub_col = sub_idx % 9;
+        let sub_width = coord.width / 9.0;
+        let sub_height = coord.height / 6.0;
 
-        (x as i32 + x_pad, y as i32 + y_pad)
+        let x = coord.x + sub_width * sub_col as f32 * 0.5;
+        let y = coord.y + sub_height * sub_row as f32 * 0.5;
+
+        (
+            (x + sub_width * 0.25) as i32,
+            (y + sub_height * 0.25) as i32,
+        )
     }
 }
 
@@ -258,23 +258,21 @@ impl MouseApplication {
             Message::KeyPressed(ch) => match self.state {
                 State::MainGrid => {
                     if let Some(cell) = self.keypoints.clone().iter().find(|k| k.first_char == ch) {
-                        let new_keypoints = self.keypoints.clone();
-
-                        self.keypoints = new_keypoints
-                            .into_iter()
+                        self.keypoints = self
+                            .keypoints
+                            .iter()
                             .map(|c| c.set_selected(cell.index))
                             .collect::<Vec<Cell>>();
                         self.selected_cell = Some(*cell);
                         self.state = State::MainCellSelected;
                     }
-                    Task::none()
                 }
                 State::MainCellSelected => {
                     let mut selected = self.selected_cell.unwrap();
                     if ch == selected.sub_select {
-                        let new_keypoints = self.keypoints.clone();
-                        self.keypoints = new_keypoints
-                            .into_iter()
+                        self.keypoints = self
+                            .keypoints
+                            .iter()
                             .map(|c| c.set_subcells(selected.index))
                             .collect::<Vec<Cell>>();
                         selected.sub_cells = true;
@@ -285,8 +283,6 @@ impl MouseApplication {
                         let _ = self.device.move_to(coords.center_x(), coords.center_y());
                         return window::get_latest().and_then(window::close);
                     }
-
-                    Task::none()
                 }
                 State::SubGridSelected => {
                     let selected = self.selected_cell.unwrap();
@@ -300,8 +296,6 @@ impl MouseApplication {
                         let _ = self.device.move_to(x, y);
                         return window::get_latest().and_then(window::close);
                     }
-
-                    Task::none()
                 }
             },
 
@@ -311,21 +305,20 @@ impl MouseApplication {
                 self.size = Some(size);
 
                 let sub_height = (size.height / 4.0) / 2.0;
-                let new_keypoints = self.keypoints.clone();
 
-                self.keypoints = new_keypoints
-                    .into_iter()
+                self.keypoints = self
+                    .keypoints
+                    .iter()
                     .map(|c| c.set_height(sub_height))
                     .collect::<Vec<Cell>>();
-                Task::none()
             }
             Message::WindowScale(scale) => {
                 println!("Scale: {:?}", scale);
                 self.scale = Some(scale);
-                Task::none()
             }
-            Message::Quit => window::get_latest().and_then(window::close),
+            Message::Quit => return window::get_latest().and_then(window::close),
         }
+        Task::none()
     }
 
     fn view(&self) -> Element<Message> {
@@ -342,24 +335,20 @@ impl MouseApplication {
                 let grid = Grid::from_vec(cells).columns(9).height(height);
 
                 // Place it.
-                container(grid)
-                    .padding(2)
-                    .center_x(Fill)
-                    .center_y(Fill)
-                    .into()
+                container(grid).padding(2).center(Fill).into()
             }
             None => container(text("Init")).into(),
         }
     }
 
-    fn style(&self, _theme: &iced::Theme) -> Style {
+    fn theme_style(&self, _theme: &iced::Theme) -> Style {
         Style {
-            background_color: Color::from_rgba(0.0, 0.0, 0.0, 0.1),
+            background_color: Color::from_rgba(0.0, 0.0, 0.0, 0.5),
             text_color: Color::WHITE,
         }
     }
 
-    fn window() -> window::Settings {
+    fn window_style() -> window::Settings {
         window::Settings {
             decorations: false,
             fullscreen: true,
@@ -379,7 +368,7 @@ impl MouseApplication {
                     if modifiers.shift() {
                         ch = ch.to_uppercase();
                     }
-                    Some(Message::KeyPressed(ch.chars().next().unwrap()))
+                    ch.chars().next().map(Message::KeyPressed)
                 }
                 _ => None,
             },
